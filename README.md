@@ -1,6 +1,8 @@
 # Freya – Kart Teslim Asistanı (Görev 1)
 
 > **Görev 2 (ürün tasarımı):** [`gorev2/index.html`](gorev2/index.html) dosyasını tarayıcıda aç. Bu tasarım 2 saatlik geliştirme süresi dolduktan sonra hazırlandı; 2 saatin tamamı Görev 1'e gitti.
+>
+> **AI sohbet kayıtları:** [`ai-sohbetleri/`](ai-sohbetleri/)
 
 Kuryenin salı günü ulaşamadığı 8 kredi kartı sahibiyle Türkçe konuşan ve bu hafta için yeni bir teslim zamanı ayarlayan sesli asistan. Müşteriyi sen oynuyorsun; telefon hattı yok, konuşma tarayıcıdan, mikrofonla gerçek zamanlı yapılıyor.
 
