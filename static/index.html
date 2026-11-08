@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Freya Kart Teslim</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="logo">Freya</span><span class="sub">Kart teslim asistanı</span></div>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <main>
+    <section class="panel" id="customers-panel">
+      <div class="panel-head">
+        <h2>Ulaşılamayan müşteriler</h2>
+        <button id="reset" class="ghost small" title="Tüm randevu, liste ve aramaları sıfırla">Sıfırla</button>
+      </div>
+      <ul id="customers" class="customers"></ul>
+    </section>
+
+    <section class="panel call" id="call-panel">
+      <div class="panel-head call-head">
+        <div>
+          <h2 id="call-title">Görüşme yok</h2>
+          <div id="call-sub" class="muted">Soldan bir müşteri seçip "Ara"ya bas. Müşteriyi sen oynuyorsun.</div>
+        </div>
+        <button id="hangup" class="danger" disabled>Kapat</button>
+      </div>
+
+      <div class="controls">
+        <label>Ses
+          <select id="tts-mode">
+            <option value="eleven">ElevenLabs</option>
+            <option value="browser">Tarayıcı</option>
+            <option value="off">Kapalı (metin)</option>
+          </select>
+        </label>
+        <label class="toggle"><input type="checkbox" id="mic-on" checked> Mikrofon</label>
+        <label class="toggle" title="Asistan konuşurken araya girebilirsin. Hoparlörde yankı yapar; kulaklıkla kullan.">
+          <input type="checkbox" id="barge"> Söz kesme (kulaklık)</label>
+        <span id="mic-state" class="mic idle">mikrofon kapalı</span>
+      </div>
+
+      <div id="transcript" class="transcript"></div>
+
+      <form id="text-form" class="text-form">
+        <input id="text-input" placeholder="Mikrofon yerine yazarak cevap ver…" autocomplete="off" disabled>
+        <button id="send" disabled>Gönder</button>
+      </form>
+    </section>
+
+    <section class="panel" id="ops-panel">
+      <div class="panel-head"><h2>Bu haftaki kurye kapasitesi</h2></div>
+      <div id="capacity-summary" class="muted small"></div>
+      <div id="slots" class="slots"></div>
+      <h3>Bekleme listesi</h3>
+      <ul id="waitlist" class="list"></ul>
+      <h3>Operasyon talepleri</h3>
+      <ul id="escalations" class="list"></ul>
+      <h3>SMS (mock)</h3>
+      <ul id="sms" class="list sms"></ul>
+    </section>
+  </main>
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
