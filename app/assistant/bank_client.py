@@ -23,6 +23,21 @@ class BankClient:
     async def verify(self, call_id: str, birth_date: str):
         return await self._req("POST", f"/calls/{call_id}/verify", {"birth_date": birth_date})
 
+    async def confirm_address(self, call_id: str):
+        return await self._req("POST", f"/calls/{call_id}/address/confirm")
+
+    async def set_address(self, call_id: str, address: str, district: str, update_registered: bool,
+                          address_type: str | None):
+        return await self._req("POST", f"/calls/{call_id}/address",
+                               {"address": address, "district": district,
+                                "update_registered": update_registered, "address_type": address_type})
+
+    async def reschedule(self, call_id: str, slot_id: int):
+        return await self._req("POST", f"/calls/{call_id}/appointment/reschedule", {"slot_id": slot_id})
+
+    async def cancel(self, call_id: str):
+        return await self._req("POST", f"/calls/{call_id}/appointment/cancel")
+
     async def slots(self, call_id: str):
         return await self._req("GET", f"/calls/{call_id}/slots")
 

@@ -15,25 +15,34 @@ import httpx
 import websockets
 
 SCENARIOS = [
-    # (müşteri_id, ad, replikler, beklenen sonuç, ek kontrol)
-    (1, "Ayşe – mutlu yol", ["Evet, benim.", "14 Mart 1988.", "Perşembe sabah olur.", "Evet, onaylıyorum.",
-                             "Hayır, teşekkürler."], "scheduled", None),
-    (2, "Mehmet – Kadıköy'ün son yeri", ["Evet benim.", "2 Kasım 1975.", "Cuma öğleden sonra uygun.", "Evet.",
-                                         "Yok, teşekkürler."], "scheduled", None),
-    (3, "Zeynep – Kadıköy dolu (taşma)", ["Evet, benim.", "27 Haziran 1993.", "Anladım, ne yapabiliriz?",
-                                          "Tamam, bekleme listesine alın. İki zaman da olur.", "Teşekkürler."],
-     "waitlisted", None),
+    # (müşteri_id, ad, replikler, beklenen sonuç, ek kontroller)
+    (1, "Ayşe – perşembe alıp cumaya geçiyor", [
+        "Evet, benim.", "14 Mart 1988.", "Evet, adres doğru.", "Perşembe sabah olur.", "Evet, onaylıyorum.",
+        "Aslında cuma öğleden sonra daha iyi olur, değiştirebilir miyiz?", "Evet, cumaya alın.",
+        "Hayır, teşekkürler."], "scheduled", ["address_confirmed", "rescheduled_to_friday"]),
+    (2, "Mehmet – Kadıköy'ün kalan yeri", [
+        "Evet benim.", "2 Kasım 1975.", "Evet, iş yerim doğru.", "Olur, o zaman uygun.", "Evet.",
+        "Yok, teşekkürler."], "scheduled", ["address_confirmed"]),
+    (3, "Zeynep – Kadıköy dolu (taşma)", [
+        "Evet, benim.", "27 Haziran 1993.", "Evet, doğru.", "Anladım, ne yapabiliriz?",
+        "Tamam, bekleme listesine alın. İki zaman da olur.", "Teşekkürler."], "waitlisted", ["address_confirmed"]),
     (4, "Can – 2 kez yanlış doğum tarihi", ["Evet benim.", "5 Mayıs 1980.", "Pardon, 1 Ocak 1980."],
-     "verification_failed", None),
+     "verification_failed", []),
     (5, "Elif – telefonu eşi açıyor", ["Hayır, ben eşiyim. Elif şu an evde yok, bana söyleyebilirsiniz."],
-     "not_reached", "no_card_leak"),
-    (6, "Burak – adres değişikliği", ["Evet benim.", "18 Aralık 1969.", "Kartı başka bir adrese gönderebilir misiniz?",
-                                      "Tamam, o zaman mevcut adrese cuma sabah olsun.", "Evet, onaylıyorum.",
-                                      "Teşekkürler."], "scheduled", "address_escalation"),
-    (7, "Selin – komşuya bırakın", ["Evet benim.", "5 Nisan 1999.", "Ben yokken komşuma bırakabilir misiniz?",
-                                    "Peki, cuma sabah olsun.", "Evet.", "Teşekkürler."], "scheduled", None),
-    (8, "Ali – mutlu yol", ["Evet benim.", "21 Temmuz 1984.", "Perşembe sabah uygun.", "Evet onaylıyorum.",
-                            "Teşekkürler, iyi günler."], "scheduled", None),
+     "not_reached", ["no_card_leak"]),
+    (6, "Burak – yeni adres Ataşehir, kayıtlı adresi güncelliyor", [
+        "Evet benim.", "18 Aralık 1969.", "Hayır, artık başka bir adresteyim.",
+        "Atatürk Mahallesi, Ertuğrul Gazi Sokak numara 7 daire 3, Ataşehir.",
+        "Evet, kayıtlı adresimi de bununla güncelleyin.", "Olur, o saat uygun.", "Evet, onaylıyorum.",
+        "Teşekkürler."], "scheduled", ["registered_address_updated"]),
+    (7, "Selin – randevu alıp vazgeçiyor", [
+        "Evet benim.", "5 Nisan 1999.", "Evet, doğru.", "Cuma sabah olur.", "Evet.",
+        "Aslında vazgeçtim, bu teslimatı iptal edin.", "Evet, eminim.", "Teşekkürler."],
+     "cancelled", ["address_confirmed", "cancel_used"]),
+    (8, "Ali – kartı iş arkadaşına bırakın", [
+        "Evet benim.", "21 Temmuz 1984.", "Evet, iş yeri adresi doğru.",
+        "Ben yokken iş arkadaşıma bırakabilir misiniz?", "Peki, perşembe sabah olsun.", "Evet onaylıyorum.",
+        "Teşekkürler, iyi günler."], "scheduled", ["address_confirmed"]),
 ]
 
 
@@ -88,13 +97,28 @@ async def run_call(base: str, customer_id: int, lines: list[str], verbose: bool)
     return {"said": said, "tools": tools, "first_text": first_text, "outcome": outcome, "ended_by_agent": ended}
 
 
-def extra_check(kind, res, board) -> str | None:
+def used(res, name) -> bool:
+    return any(t["name"] == name and t["result"].get("ok") for t in res["tools"])
+
+
+def extra_check(kind, res, board, cid) -> str | None:
+    customer = next(c for c in board["customers"] if c["id"] == cid)
     if kind == "no_card_leak":
-        leaked = [s for s in res["said"] if "kart" in s.lower()]
-        return f"üçüncü kişiye kart bilgisi sızdı: {leaked}" if leaked else None
-    if kind == "address_escalation":
-        ok = any(t["name"] == "escalate" and t["input"].get("reason") == "address_change" for t in res["tools"])
-        return None if ok else "address_change escalation açılmadı"
+        leaked = [s for s in res["said"] if any(w in s.lower() for w in ("kart", "adres", "teslim"))]
+        return f"üçüncü kişiye bilgi sızdı: {leaked}" if leaked else None
+    if kind == "address_confirmed":
+        return None if used(res, "confirm_address") else "adres teyidi (confirm_address) yapılmadı"
+    if kind == "rescheduled_to_friday":
+        appt = customer["appointment"]
+        ok = used(res, "reschedule_appointment") and appt and appt["day"] == "Cuma"
+        return None if ok else f"cumaya taşınmadı (randevu: {appt and appt['label']})"
+    if kind == "registered_address_updated":
+        appt = customer["appointment"]
+        ok = (used(res, "set_delivery_address") and customer["district"] == "Ataşehir"
+              and "Ertuğrul" in customer["address"] and appt and appt["district"] == "Ataşehir")
+        return None if ok else f"kayıtlı adres/randevu güncellenmedi ({customer['district']}, {customer['address']})"
+    if kind == "cancel_used":
+        return None if used(res, "cancel_appointment") and not customer["appointment"] else "iptal edilmedi"
     return None
 
 
@@ -109,7 +133,7 @@ async def main():
     async with httpx.AsyncClient(base_url=args.base, timeout=30) as http:
         await http.post("/bank/admin/reset")
         rows, all_ttft, t_all = [], [], time.perf_counter()
-        for cid, name, lines, expected, check in SCENARIOS:
+        for cid, name, lines, expected, checks in SCENARIOS:
             if only and cid not in only:
                 continue
             print(f"▶ {name}")
@@ -119,14 +143,18 @@ async def main():
             problems = []
             if res["outcome"] != expected:
                 problems.append(f"sonuç {res['outcome']} (beklenen {expected})")
-            if check and (p := extra_check(check, res, board)):
-                problems.append(p)
-            # Akış kontrolü: doğrulandığı turda müşteriyi bekletmeden slotlara bakmalı
-            verified_turns = {t["turn"] for t in res["tools"]
-                              if t["name"] == "verify_identity" and t["result"].get("verified")}
+            for check in checks:
+                if p := extra_check(check, res, board, cid):
+                    problems.append(p)
+            # Akış kontrolü: adres teyit edildiği turda müşteriyi bekletmeden slotlara bakmalı
+            address_turns = {t["turn"] for t in res["tools"]
+                             if t["name"] in ("confirm_address", "set_delivery_address") and t["result"].get("ok")}
             slot_turns = {t["turn"] for t in res["tools"] if t["name"] == "list_available_slots"}
-            if verified_turns - slot_turns:
-                problems.append("doğrulamadan sonra slotlara bakmadan durdu")
+            if address_turns - slot_turns:
+                problems.append("adres teyidinden sonra slotlara bakmadan durdu")
+            rejected = [f"{t['name']}:{t['result'].get('error')}" for t in res["tools"] if t["result"].get("ok") is False]
+            if rejected and args.verbose:
+                print(f"    (servis reddi, model toparladı mı bak: {rejected})")
             over = [s for s in board["slots"] if s["booked"] > s["capacity"]]
             if over:
                 problems.append(f"kapasite aşıldı: {over}")

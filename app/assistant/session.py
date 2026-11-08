@@ -22,13 +22,15 @@ SENTENCE_END = re.compile(r"[.!?…]+[\"')»]*(?=\s)")
 # Seslendirme güvenlik ağı: modelin sızdırdığı iç düşünce / düzeltme / cinsiyetli hitap
 _PARENS = re.compile(r"\([^)]*\)")
 _HONORIFIC = re.compile(r",?\s+[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\s+(Hanım|Bey)\b")
+_HONORIFIC_WITH = re.compile(r"\s+(Hanım|Bey)(la|le)\b")      # "Elif Hanımla" → "Elif ile"
 _META = re.compile(r"\b(avoid|let me|restate|gender\w*|must|should|actually|i will|i'll|i need|note)\b"
                    r"|hitap kural", re.I)
 
 
 def speakable(text: str) -> str:
     """Müşteriye okunmaması gereken parçaları ayıklar; tamamen meta ise boş döner."""
-    text = _HONORIFIC.sub("", _PARENS.sub("", text)).strip(" :;-—")
+    text = _HONORIFIC_WITH.sub(" ile", _PARENS.sub("", text))
+    text = _HONORIFIC.sub("", text).strip(" :;-—")
     if not re.search(r"\w", text) or _META.search(text):
         return ""
     return re.sub(r"\s{2,}", " ", text)
@@ -72,7 +74,7 @@ class CallSession:
                 setting_sources=[],             # CLAUDE.md / settings.json yüklenmez
                 include_partial_messages=True,  # token akışı → cümle cümle TTS
                 thinking={"type": "disabled"},  # sesli kanalda gecikme öncelikli
-                max_turns=8,
+                max_turns=10,
                 env={"CLAUDE_CONFIG_DIR": settings.claude_config_dir},
                 cwd=str(settings.data_dir),
             )

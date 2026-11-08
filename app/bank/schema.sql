@@ -3,8 +3,9 @@ CREATE TABLE IF NOT EXISTS customers (
   full_name     TEXT NOT NULL,
   phone         TEXT NOT NULL UNIQUE,
   birth_date    TEXT NOT NULL,                 -- 'YYYY-MM-DD'; LLM'e asla gönderilmez
-  district      TEXT NOT NULL,
-  address_type  TEXT NOT NULL CHECK (address_type IN ('home','work'))
+  district      TEXT NOT NULL,                 -- kayıtlı adresin ilçesi
+  address_type  TEXT NOT NULL CHECK (address_type IN ('home','work','other')),
+  address       TEXT NOT NULL                  -- kayıtlı teslimat adresi
 );
 
 CREATE TABLE IF NOT EXISTS delivery_slots (
@@ -26,8 +27,11 @@ CREATE TABLE IF NOT EXISTS calls (
   ended_at              TEXT,
   verification_attempts INTEGER NOT NULL DEFAULT 0,
   verified_at           TEXT,
-  outcome               TEXT CHECK (outcome IN
-    ('scheduled','waitlisted','escalated','verification_failed','not_reached','declined')),
+  address_confirmed_at  TEXT,                  -- teslimat adresi müşteriyle teyit edildi
+  delivery_address      TEXT,                  -- bu aramada teyit edilen teslimat adresi
+  delivery_district     TEXT,
+  outcome               TEXT CHECK (outcome IN ('scheduled','waitlisted','cancelled','escalated',
+                                                'verification_failed','not_reached','declined')),
   summary               TEXT
 );
 
@@ -36,9 +40,11 @@ CREATE TABLE IF NOT EXISTS appointments (
   customer_id  INTEGER NOT NULL REFERENCES customers(id),
   slot_id      INTEGER NOT NULL REFERENCES delivery_slots(id),
   call_id      TEXT REFERENCES calls(id),
+  address      TEXT NOT NULL,                  -- kartın gideceği adres (kayıtlıdan farklı olabilir)
   status       TEXT NOT NULL CHECK (status IN ('confirmed','cancelled','delivered')),
   source       TEXT NOT NULL CHECK (source IN ('call','waitlist_promotion')),
   created_at   TEXT NOT NULL,
+  updated_at   TEXT,
   cancelled_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_appointment
@@ -48,6 +54,8 @@ CREATE TABLE IF NOT EXISTS waitlist_entries (
   id                 INTEGER PRIMARY KEY,
   customer_id        INTEGER NOT NULL REFERENCES customers(id),
   call_id            TEXT REFERENCES calls(id),
+  district           TEXT NOT NULL,
+  address            TEXT NOT NULL,
   accepted_slot_ids  TEXT NOT NULL,            -- JSON dizi; prod'da ayrı join tablosu
   next_week_priority INTEGER NOT NULL DEFAULT 1,
   status             TEXT NOT NULL CHECK (status IN ('waiting','promoted','cancelled')),
@@ -55,6 +63,18 @@ CREATE TABLE IF NOT EXISTS waitlist_entries (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_waitlist
   ON waitlist_entries(customer_id) WHERE status = 'waiting';
+
+CREATE TABLE IF NOT EXISTS address_changes (    -- denetim kaydı: her adres değişikliği
+  id           INTEGER PRIMARY KEY,
+  customer_id  INTEGER NOT NULL REFERENCES customers(id),
+  call_id      TEXT REFERENCES calls(id),
+  old_address  TEXT NOT NULL,
+  old_district TEXT NOT NULL,
+  new_address  TEXT NOT NULL,
+  new_district TEXT NOT NULL,
+  scope        TEXT NOT NULL CHECK (scope IN ('this_delivery','registered')),
+  created_at   TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS escalations (
   id          INTEGER PRIMARY KEY,

@@ -2,7 +2,7 @@
 const $ = (s) => document.querySelector(s);
 const STATUS = {
   pending: ["Aranmadı", ""], scheduled: ["Planlandı", "ok"], waitlisted: ["Bekleme listesi", "warn"],
-  escalated: ["Operasyonda", "warn"], verification_failed: ["Doğrulanamadı", "bad"],
+  cancelled: ["İptal etti", "bad"], escalated: ["Operasyonda", "warn"], verification_failed: ["Doğrulanamadı", "bad"],
   not_reached: ["Ulaşılamadı", ""], declined: ["Reddetti", "bad"],
 };
 const REASONS = {
@@ -11,11 +11,22 @@ const REASONS = {
 };
 const ENDPOINT_MS = 700;   // son konuşma sonucundan bu kadar sessizlik sonra cümle gönderilir
 const IDLE_MS = 600;       // asistan sustuktan sonra mikrofon açılmadan önceki bekleme
+const MAX_FAST_FAILS = 6;  // art arda hemen kapanan tanıma denemesi → kullanıcıdan tıklama beklenir
 
 let board = null;
 let call = null;           // { ws, customer, turn, mode, ending, turnActive, lastEl, metrics }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---------------- teşhis günlüğü (?debug ile konsola da yazar; window.sttLog) ----------------
+const DEBUG = /[?&]debug\b/.test(location.search);
+const sttLog = (window.sttLog = []);
+function log(...parts) {
+  const line = [new Date().toISOString().slice(11, 23), ...parts].join(" ");
+  sttLog.push(line);
+  if (sttLog.length > 300) sttLog.shift();
+  if (DEBUG) console.log("[stt]", line);
+}
 
 // ---------------- pano ----------------
 async function refresh() {
@@ -32,18 +43,19 @@ function render() {
   const busy = !!call;
   $("#customers").innerHTML = board.customers.map((c) => {
     const [label, cls] = STATUS[c.status] || [c.status, ""];
-    const appt = c.appointment
-      ? `<div class="appt">${esc(c.appointment.label)}${c.appointment.source === "waitlist_promotion" ? " · listeden atandı" : ""}</div>` : "";
+    const a = c.appointment;
+    const appt = a ? `<div class="appt">${esc(a.label)}${a.source === "waitlist_promotion" ? " · listeden atandı" : ""}${a.address !== c.address ? `<br>→ ${esc(a.address)}` : ""}</div>` : "";
     return `<li class="customer ${call && call.customer.id === c.id ? "active" : ""}">
       <div class="row"><span class="name">${esc(c.full_name)}</span><span class="chip ${cls}">${label}</span></div>
       <div class="row muted small"><span>${esc(c.district)} · ${esc(c.delivery_address)}</span><span>${esc(c.phone)}</span></div>
+      <div class="addr">${esc(c.address)}</div>
       ${appt}
       <div class="row"><button class="primary small" data-call="${c.id}" ${busy ? "disabled" : ""}>Ara</button>
-        ${c.appointment ? `<button class="ghost small" data-cancel="${c.appointment.appointment_id}" title="Teslimatı iptal et; boşalan yer bekleme listesine geçer">Teslimatı iptal et</button>` : ""}
+        ${a ? `<button class="ghost small" data-cancel="${a.appointment_id}" title="Operasyon iptali; boşalan yer bekleme listesine geçer">Teslimatı iptal et</button>` : ""}
       </div></li>`;
   }).join("");
 
-  const booked = board.slots.reduce((a, s) => a + s.booked, 0);
+  const booked = board.slots.reduce((n, s) => n + s.booked, 0);
   $("#capacity-summary").textContent = `${board.totals.customers} müşteri · ${board.totals.capacity} yer · ${booked} dolu`;
   $("#slots").innerHTML = board.slots.map((s) => `<div class="slot">
       <div class="row"><span class="district">${esc(s.district)}</span><span>${s.booked}/${s.capacity}</span></div>
@@ -51,16 +63,13 @@ function render() {
       <div class="bar ${s.booked >= s.capacity ? "full" : ""}"><span style="width:${(100 * s.booked) / s.capacity}%"></span></div>
       <div class="who">${s.customers.map(esc).join(", ") || "—"}</div></div>`).join("");
 
-  $("#waitlist").innerHTML = board.waitlist.length
-    ? board.waitlist.map((w, i) => `<li><b>${i + 1}. ${esc(w.full_name)}</b> · ${esc(w.district)}<br>
-        <span class="muted">Yer açılırsa: ${w.accepted_slot_ids.map(slotShort).map(esc).join(", ") || "yalnız gelecek hafta"}</span></li>`).join("")
-    : `<li class="empty">Boş</li>`;
-  $("#escalations").innerHTML = board.escalations.length
-    ? board.escalations.map((e) => `<li><b>${esc(REASONS[e.reason] || e.reason)}</b> · ${esc(e.full_name)}${e.note ? `<br><span class="muted">${esc(e.note)}</span>` : ""}</li>`).join("")
-    : `<li class="empty">Yok</li>`;
-  $("#sms").innerHTML = board.sms.length
-    ? board.sms.map((s) => `<li><b>${esc(s.full_name)}</b>: ${esc(s.body)}</li>`).join("")
-    : `<li class="empty">Henüz yok</li>`;
+  const list = (sel, items, fn, empty) => { $(sel).innerHTML = items.length ? items.map(fn).join("") : `<li class="empty">${empty}</li>`; };
+  list("#waitlist", board.waitlist, (w, i) => `<li><b>${i + 1}. ${esc(w.full_name)}</b> · ${esc(w.district)}<br>
+      <span class="muted">Yer açılırsa: ${w.accepted_slot_ids.map(slotShort).map(esc).join(", ") || "yalnız gelecek hafta"}</span></li>`, "Boş");
+  list("#address-changes", board.address_changes, (a) => `<li><b>${esc(a.full_name)}</b> · ${a.scope === "registered" ? "kayıtlı adres güncellendi" : "yalnızca bu teslimat"}<br>
+      <span class="muted">${esc(a.old_address)} → ${esc(a.new_address)}</span></li>`, "Yok");
+  list("#escalations", board.escalations, (e) => `<li><b>${esc(REASONS[e.reason] || e.reason)}</b> · ${esc(e.full_name)}${e.note ? `<br><span class="muted">${esc(e.note)}</span>` : ""}</li>`, "Yok");
+  list("#sms", board.sms, (s) => `<li><b>${esc(s.full_name)}</b>: ${esc(s.body)}</li>`, "Henüz yok");
   $("#reset").disabled = busy;
 }
 
@@ -134,7 +143,7 @@ function stopAudio() {
 const isSpeaking = () => audio.sources.size > 0 || ("speechSynthesis" in window && (speechSynthesis.speaking || speechSynthesis.pending));
 const botBusy = () => !!call && (call.turnActive || isSpeaking());
 
-// Yarı çift yönlü: asistan konuşurken/düşünürken mikrofon kapanır (hoparlör yankısı STT'ye girmesin).
+// Yarı çift yönlü: asistan konuşurken/düşünürken tanıma durur (hoparlör yankısı STT'ye girmesin).
 let idleTimer = null;
 function onActivityChange() {
   updateMicState();
@@ -152,35 +161,125 @@ function onActivityChange() {
   }, IDLE_MS);
 }
 
+// ---------------- mikrofon izni + seviye göstergesi ----------------
+// Neden: Web Speech API kendi başına izin ister; "bu sefer izin ver" seçilirse izin arka planda düşebiliyor ve
+// tanıma sessizce 'not-allowed' ile kapanıyor. Arama boyunca açık tutulan getUserMedia akışı izni canlı tutar,
+// izin istemini kullanıcı tıklamasına bağlar ve seviye göstergesiyle mikrofonun gerçekten ses aldığını gösterir.
+const mic = { stream: null, raf: 0, permission: "unknown" };
+
+async function micPermissionState() {
+  try { return (await navigator.permissions.query({ name: "microphone" })).state; } catch { return "unknown"; }
+}
+
+async function ensureMicStream() {
+  if (mic.stream && mic.stream.getAudioTracks().some((t) => t.readyState === "live")) return true;
+  try {
+    mic.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    mic.permission = "granted";
+    log("getUserMedia ok");
+    const track = mic.stream.getAudioTracks()[0];
+    track.onended = () => { log("mic track ended"); mic.stream = null; updateMicState(); };
+    startLevelMeter();
+    return true;
+  } catch (e) {
+    mic.permission = e.name === "NotAllowedError" ? "denied" : "error";
+    stt.lastError = e.name;
+    log("getUserMedia failed", e.name);
+    updateMicState();
+    return false;
+  }
+}
+
+function startLevelMeter() {
+  ensureAudio();
+  const src = audio.ctx.createMediaStreamSource(mic.stream);
+  const analyser = audio.ctx.createAnalyser();
+  analyser.fftSize = 512;
+  src.connect(analyser);                                   // hoparlöre bağlanmaz (geri besleme yok)
+  const data = new Uint8Array(analyser.fftSize);
+  const bar = $("#mic-level > span");
+  cancelAnimationFrame(mic.raf);
+  const tick = () => {
+    analyser.getByteTimeDomainData(data);
+    let peak = 0;
+    for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
+    bar.style.width = `${Math.min(100, (peak / 128) * 180)}%`;
+    mic.raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function releaseMic() {
+  cancelAnimationFrame(mic.raf);
+  if (mic.stream) mic.stream.getTracks().forEach((t) => t.stop());
+  mic.stream = null;
+  $("#mic-level > span").style.width = "0";
+}
+
 // ---------------- konuşma tanıma (Chrome Web Speech, tr-TR) ----------------
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const stt = { rec: null, paused: false, finalText: "", lastInterim: "", timer: null, retries: 0, interimEl: null };
+const stt = {
+  rec: null, paused: false, finalText: "", lastInterim: "", timer: null, retries: 0, interimEl: null,
+  startedAt: 0, fastFails: 0, restartTimer: null, lastError: "",
+};
 
-const sttWanted = () => !!call && !call.ending && $("#mic-on").checked && !stt.paused;
+const sttWanted = () => !!call && !call.ending && $("#mic-on").checked && !stt.paused && !document.hidden
+  && mic.permission !== "denied";
 
 function sttStart() {
+  clearTimeout(stt.restartTimer);
   if (!SR || stt.rec || !sttWanted()) { updateMicState(); return; }
   const rec = new SR();
   rec.lang = "tr-TR";
   rec.continuous = true;
   rec.interimResults = true;
   rec.onresult = onSpeech;
+  rec.onstart = () => { stt.startedAt = performance.now(); log("rec start"); updateMicState(); };
   rec.onerror = (e) => {
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      $("#mic-on").checked = false;
-      sys("Mikrofon izni yok; yazarak devam edebilirsin.", true);
-    }
+    stt.lastError = e.error;
+    log("rec error", e.error, "hidden=" + document.hidden);
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") handleNotAllowed();
   };
   rec.onend = () => {
     if (stt.rec === rec) stt.rec = null;
+    const lived = performance.now() - stt.startedAt;
+    stt.fastFails = lived < 1500 ? stt.fastFails + 1 : 0;
+    log("rec end", `lived=${Math.round(lived)}ms`, `fastFails=${stt.fastFails}`);
     updateMicState();
-    if (sttWanted()) setTimeout(sttStart, 150);          // Chrome sessizlikte kapatır; yeniden aç
+    scheduleRestart();                                     // Chrome sessizlikte/arka planda kapatır; yeniden aç
   };
-  try { rec.start(); stt.rec = rec; } catch { /* zaten çalışıyor */ }
+  try {
+    stt.startedAt = performance.now();
+    rec.start();
+    stt.rec = rec;
+  } catch (e) {
+    log("rec start threw", e.message);
+    scheduleRestart();
+  }
+  updateMicState();
+}
+
+function scheduleRestart() {
+  clearTimeout(stt.restartTimer);
+  if (!sttWanted() || stt.fastFails >= MAX_FAST_FAILS) { updateMicState(); return; }
+  stt.restartTimer = setTimeout(sttStart, Math.min(150 * 2 ** stt.fastFails, 3000));
+}
+
+async function handleNotAllowed() {
+  const state = await micPermissionState();
+  log("not-allowed → permission", state);
+  if (state === "denied") {
+    mic.permission = "denied";
+    sys("Mikrofon izni engelli. Adres çubuğundaki site ayarlarından Mikrofon → İzin ver seçip durum etiketine tıkla.", true);
+  } else if (state === "prompt") {
+    mic.permission = "prompt";                             // tek seferlik izin düşmüş → tıklayınca yeniden istenir
+  }
+  // "granted" + not-allowed: genelde sekme arka plandayken başlatma denemesi; görünür olunca yeniden denenir.
   updateMicState();
 }
 
 function sttStop() {
+  clearTimeout(stt.restartTimer);
   const r = stt.rec;
   stt.rec = null;
   if (r) { r.onend = null; try { r.abort(); } catch { /* yok say */ } }
@@ -191,6 +290,40 @@ function sttStop() {
 }
 function sttPause() { stt.paused = true; sttStop(); }
 function sttResume() { stt.paused = false; sttStart(); }
+function sttResumeIfIdle() {
+  if (!botBusy() || $("#barge").checked) sttResume(); else stt.paused = true;   // asistan bitince açılır
+}
+
+// Kullanıcı jestiyle mikrofonu yeniden dene (durum etiketi, kutu): izin istemi gerekiyorsa burada açılır.
+async function retryMic() {
+  if (!call) return;
+  stt.fastFails = 0; stt.lastError = "";
+  if (mic.permission === "denied" && (await micPermissionState()) === "denied") {
+    toast("Mikrofon engelli: adres çubuğundaki site ayarlarından Mikrofon → İzin ver, sonra tekrar tıkla.");
+    return;
+  }
+  mic.permission = "unknown";
+  $("#mic-on").checked = true;
+  if (await ensureMicStream()) sttResumeIfIdle();
+  updateMicState();
+}
+
+document.addEventListener("visibilitychange", () => {
+  log("visibility", document.visibilityState);
+  if (document.hidden) {                                   // arka planda bilerek durdur (hata yoluna düşmesin)
+    clearTimeout(stt.restartTimer);
+    const r = stt.rec;
+    stt.rec = null;
+    if (r) { r.onend = null; try { r.abort(); } catch { /* yok say */ } }
+  } else {
+    if (audio.ctx && audio.ctx.state === "suspended") audio.ctx.resume();
+    stt.fastFails = 0;
+    if (call && mic.stream === null && mic.permission === "granted") ensureMicStream();
+    sttStart();
+  }
+  updateMicState();
+});
+window.addEventListener("focus", () => { if (call && !stt.rec) { stt.fastFails = 0; sttStart(); } });
 
 function onSpeech(e) {
   let interim = "";
@@ -201,6 +334,7 @@ function onSpeech(e) {
   }
   const heard = (stt.finalText + interim).trim();
   if (!heard) return;
+  stt.fastFails = 0;
   if (botBusy()) {
     if (!$("#barge").checked) { stt.finalText = ""; return; }
     if (heard.split(/\s+/).length >= 2) bargeIn();
@@ -235,12 +369,20 @@ function bargeIn() {
 function updateMicState(hearing = false) {
   const el = $("#mic-state");
   let text = "mikrofon kapalı", cls = "idle";
-  if (call && !SR) text = "Bu tarayıcıda STT yok (Chrome kullan)";
-  else if (call && isSpeaking()) { text = "asistan konuşuyor"; cls = "speaking"; }
-  else if (call && call.turnActive) { text = "asistan düşünüyor…"; cls = "speaking"; }
+  if (!call) { /* varsayılan */ }
+  else if (!SR) { text = "Bu tarayıcıda STT yok (Chrome kullan)"; cls = "bad"; }
+  else if (mic.permission === "denied") { text = "mikrofon izni engelli · tıkla"; cls = "bad"; }
+  else if (!$("#mic-on").checked) { text = "mikrofon kapalı (kutudan aç)"; }
+  else if (document.hidden) { text = "sekme arka planda · dönünce açılır"; }
+  else if (isSpeaking()) { text = $("#barge").checked ? "asistan konuşuyor · araya girebilirsin" : "asistan konuşuyor"; cls = "speaking"; }
+  else if (call.turnActive) { text = "asistan düşünüyor…"; cls = "speaking"; }
   else if (stt.rec) { text = hearing ? "duyuyorum…" : "dinliyor"; cls = hearing ? "hearing" : "listening"; }
+  else if (stt.fastFails >= MAX_FAST_FAILS || mic.permission === "prompt") { text = "mikrofon başlamadı · tıkla"; cls = "bad"; }
+  else if (call.ending) { text = "görüşme bitiyor"; }
+  else { text = "mikrofon açılıyor…"; }
   el.textContent = text;
   el.className = `mic ${cls}`;
+  el.title = stt.lastError ? `Son hata: ${stt.lastError} · tıkla: yeniden dene` : "Tıkla: mikrofonu yeniden dene";
 }
 
 // ---------------- görüşme dökümü ----------------
@@ -276,10 +418,18 @@ function toolSummary(m) {
   if (r.ok === false) return `${m.name} → reddedildi: ${r.error}`;
   switch (m.name) {
     case "verify_identity":
-      return r.verified ? "verify_identity → doğrulandı" : r.locked ? "verify_identity → kilitlendi" : `verify_identity → yanlış (kalan hak ${r.attempts_left})`;
+      return r.verified ? `verify_identity → doğrulandı · kayıtlı adres: ${r.customer.registered_address.address}`
+        : r.locked ? "verify_identity → kilitlendi" : `verify_identity → yanlış (kalan hak ${r.attempts_left})`;
+    case "confirm_address": return `confirm_address → ${r.address}`;
+    case "set_delivery_address":
+      return `set_delivery_address → ${r.address} (${r.registered_updated ? "kayıtlı adres güncellendi" : "yalnızca bu teslimat"})`;
     case "list_available_slots":
-      return r.slots && r.slots.length ? `list_available_slots → ${r.slots.map((s) => s.label).join(" | ")}` : "list_available_slots → ilçe dolu (taşma)";
+      if (r.slots && r.slots.length) return `list_available_slots (${r.district}) → ${r.slots.map((s) => s.label).join(" | ")}`;
+      return r.overflow && r.overflow.reason === "district_not_served"
+        ? `list_available_slots → kurye ${r.district} ilçesine gitmiyor` : `list_available_slots → ${r.district} dolu (taşma)`;
     case "book_slot": return `book_slot → ${r.slot ? r.slot.label : "?"}`;
+    case "reschedule_appointment": return `reschedule_appointment → ${r.from.label} ⇒ ${r.slot.label}`;
+    case "cancel_appointment": return `cancel_appointment → iptal: ${r.slot.label}`;
     case "join_waitlist": return `join_waitlist → sıra ${r.position}`;
     case "escalate": return `escalate(${m.input.reason}) → talep #${r.ticket_id}`;
     case "end_call": return `end_call → ${(STATUS[r.outcome] || [r.outcome])[0]}`;
@@ -308,7 +458,7 @@ function setMetric(turn, patch) {
 function startCall(customerId) {
   if (call || !board) return;
   const customer = board.customers.find((c) => c.id === customerId);
-  ensureAudio();
+  ensureAudio();                                           // tıklama jesti içinde: ses çalma izni
   const mode = $("#tts-mode").value;
   $("#transcript").innerHTML = "";
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -316,10 +466,13 @@ function startCall(customerId) {
   ws.binaryType = "arraybuffer";
   call = { ws, customer, turn: 0, mode, ending: false, turnActive: false, lastEl: null, metrics: {} };
   audio.minTurn = 0;
+  stt.fastFails = 0; stt.lastError = ""; stt.paused = false;
+  if ($("#mic-on").checked && SR) ensureMicStream();     // izin istemi tıklama jesti içinde açılır
   $("#call-title").textContent = `${customer.full_name} aranıyor…`;
   $("#call-sub").textContent = "Claude oturumu açılıyor";
   $("#hangup").disabled = false;
   render();
+  updateMicState();
   ws.onmessage = (ev) => (typeof ev.data === "string" ? handle(JSON.parse(ev.data)) : playPcm(ev.data));
   ws.onclose = cleanupCall;
 }
@@ -384,6 +537,7 @@ function cleanupCall() {
   if (!call) return;
   sttStop();
   stopAudio();
+  releaseMic();
   call = null;
   $("#hangup").disabled = true;
   $("#text-input").disabled = true; $("#send").disabled = true;
@@ -405,14 +559,18 @@ $("#tts-mode").onchange = () => {
   if (call.mode !== "eleven") stopAudio();
   call.ws.send(JSON.stringify({ type: "tts_mode", mode: call.mode }));
 };
-$("#mic-on").onchange = () => ($("#mic-on").checked ? sttResume() : sttStop());
-$("#barge").onchange = () => onActivityChange();
+$("#mic-on").onchange = async () => {
+  log("mic checkbox", $("#mic-on").checked);
+  if ($("#mic-on").checked) await retryMic(); else { sttStop(); updateMicState(); }
+};
+$("#mic-state").onclick = () => retryMic();
+$("#barge").onchange = () => { if ($("#barge").checked && call && botBusy()) sttResume(); onActivityChange(); };
 
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg; t.hidden = false;
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => (t.hidden = true), 4500);
+  toast._t = setTimeout(() => (t.hidden = true), 5000);
 }
 
 fetch("/api/config").then((r) => r.json()).then((c) => {

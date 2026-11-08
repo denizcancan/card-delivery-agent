@@ -22,6 +22,13 @@ class Book(BaseModel):
     slot_id: int
 
 
+class DeliveryAddress(BaseModel):
+    address: str
+    district: str
+    update_registered: bool = False
+    address_type: str | None = None
+
+
 class Waitlist(BaseModel):
     accepted_slot_ids: list[int] = Field(default_factory=list)
 
@@ -57,6 +64,15 @@ def create_bank_app(bank: Bank) -> FastAPI:
     def verify(call_id: str, body: Verify):
         return bank.verify_identity(call_id, body.birth_date)
 
+    @app.post("/calls/{call_id}/address/confirm")
+    def confirm_address(call_id: str):
+        return bank.confirm_address(call_id)
+
+    @app.post("/calls/{call_id}/address")
+    def set_address(call_id: str, body: DeliveryAddress):
+        return bank.set_delivery_address(call_id, body.address, body.district,
+                                         body.update_registered, body.address_type)
+
     @app.get("/calls/{call_id}/slots")
     def slots(call_id: str):
         return bank.list_slots(call_id)
@@ -64,6 +80,14 @@ def create_bank_app(bank: Bank) -> FastAPI:
     @app.post("/calls/{call_id}/appointments")
     def book(call_id: str, body: Book):
         return bank.book_slot(call_id, body.slot_id)
+
+    @app.post("/calls/{call_id}/appointment/reschedule")
+    def reschedule(call_id: str, body: Book):
+        return bank.reschedule(call_id, body.slot_id)
+
+    @app.post("/calls/{call_id}/appointment/cancel")
+    def cancel_for_call(call_id: str):
+        return bank.cancel_for_call(call_id)
 
     @app.post("/calls/{call_id}/waitlist")
     def waitlist(call_id: str, body: Waitlist):

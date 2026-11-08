@@ -7,6 +7,8 @@ def test_drops_leaked_meta_and_honorifics():
     assert speakable("(no—must avoid gendered address).") == ""
     assert speakable("Let me restate.") == ""
     assert speakable("(hitap kuralı gereği ad soyad kullanıyorum): Teşekkür ederim.") == "Teşekkür ederim."
+    assert (speakable("Bilgileri yalnızca hesap sahibi Elif Hanımla paylaşabiliyoruz.")
+            == "Bilgileri yalnızca hesap sahibi Elif ile paylaşabiliyoruz.")
 
 
 def test_keeps_normal_turkish():

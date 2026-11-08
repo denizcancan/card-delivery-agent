@@ -5,8 +5,8 @@ import pytest
 
 from app.bank.service import Bank, BankError
 
-DOB = {1: "1988-03-14", 2: "1975-11-02", 3: "1993-06-27", 4: "1981-01-09"}
-KADIKOY_THU, KADIKOY_FRI, ATASEHIR_THU = 1, 2, 3
+DOB = {1: "1988-03-14", 2: "1975-11-02", 3: "1993-06-27", 4: "1981-01-09", 6: "1969-12-18"}
+KADIKOY_THU, KADIKOY_FRI, ATASEHIR_THU, SISLI_FRI = 1, 2, 3, 4
 
 
 @pytest.fixture
@@ -16,10 +16,17 @@ def bank(tmp_path):
     return b
 
 
-def verified_call(bank, customer_id):
+def verified_call(bank, customer_id, confirm=True):
     call_id = bank.start_call(customer_id)["call_id"]
-    assert bank.verify_identity(call_id, DOB[customer_id])["verified"]
+    res = bank.verify_identity(call_id, DOB[customer_id])
+    assert res["verified"] and res["customer"]["registered_address"]["address"]
+    if confirm:
+        bank.confirm_address(call_id)
     return call_id
+
+
+def status_of(bank, name):
+    return {c["full_name"]: c for c in bank.board()["customers"]}[name]
 
 
 def test_seed_dates_and_capacity(bank):
@@ -28,13 +35,17 @@ def test_seed_dates_and_capacity(bank):
     assert {s["date"] for s in board["slots"]} == {"2026-11-12", "2026-11-13"}
 
 
-def test_tools_require_verification(bank):
+def test_tools_require_verification_then_address(bank):
     call_id = bank.start_call(1)["call_id"]
     for fn in (lambda: bank.list_slots(call_id), lambda: bank.book_slot(call_id, KADIKOY_THU),
-               lambda: bank.join_waitlist(call_id, [])):
+               lambda: bank.confirm_address(call_id)):
         with pytest.raises(BankError) as e:
             fn()
         assert e.value.code == "not_verified"
+    bank.verify_identity(call_id, DOB[1])
+    with pytest.raises(BankError) as e:
+        bank.list_slots(call_id)
+    assert e.value.code == "address_not_confirmed"
 
 
 def test_verification_accepts_turkish_format_and_locks_after_two_failures(bank):
@@ -51,10 +62,8 @@ def test_verification_accepts_turkish_format_and_locks_after_two_failures(bank):
 
 
 def test_kadikoy_overflow_waitlist_and_promotion(bank):
-    a = verified_call(bank, 1)
-    assert bank.book_slot(a, KADIKOY_THU)["booked"]
-    m = verified_call(bank, 2)
-    assert bank.book_slot(m, KADIKOY_FRI)["booked"]
+    bank.book_slot(verified_call(bank, 1), KADIKOY_THU)
+    bank.book_slot(verified_call(bank, 2), KADIKOY_FRI)
 
     z = verified_call(bank, 3)
     slots = bank.list_slots(z)
@@ -65,11 +74,70 @@ def test_kadikoy_overflow_waitlist_and_promotion(bank):
     assert bank.join_waitlist(z, [KADIKOY_THU, KADIKOY_FRI])["position"] == 1
     assert bank.end_call(z)["outcome"] == "waitlisted"
 
-    appt = bank.board()["customers"][0]["appointment"]["appointment_id"]
-    res = bank.cancel_appointment(appt)
+    res = bank.cancel_appointment(status_of(bank, "Ayşe Kaya")["appointment"]["appointment_id"])
     assert res["promoted"]["full_name"] == "Zeynep Arslan"
-    statuses = {c["full_name"]: c["status"] for c in bank.board()["customers"]}
-    assert statuses["Zeynep Arslan"] == "scheduled" and statuses["Ayşe Kaya"] == "pending"
+    assert status_of(bank, "Zeynep Arslan")["status"] == "scheduled"
+    assert status_of(bank, "Ayşe Kaya")["status"] == "pending"
+
+
+def test_reschedule_in_same_call_moves_capacity_and_promotes_waitlist(bank):
+    a = verified_call(bank, 1)
+    bank.book_slot(a, KADIKOY_THU)
+    bank.book_slot(verified_call(bank, 2), KADIKOY_FRI)
+    z = verified_call(bank, 3)
+    bank.join_waitlist(z, [KADIKOY_THU])                     # Zeynep yalnız perşembeyi kabul ediyor
+
+    with pytest.raises(BankError) as e:                       # cuma dolu
+        bank.reschedule(a, KADIKOY_FRI)
+    assert e.value.code == "slot_full"
+
+    bank.cancel_appointment(status_of(bank, "Mehmet Demir")["appointment"]["appointment_id"])  # cuma boşaldı
+    res = bank.reschedule(a, KADIKOY_FRI)
+    assert res["rescheduled"] and res["slot"]["slot_id"] == KADIKOY_FRI
+    assert res["released_slot_reassigned"] is True and "full_name" not in str(res)   # isim sızmaz
+    assert status_of(bank, "Zeynep Arslan")["appointment"]["slot_id"] == KADIKOY_THU
+    assert {s["slot_id"]: s["booked"] for s in bank.board()["slots"]}[KADIKOY_FRI] == 1
+
+
+def test_cancel_in_same_call(bank):
+    s = verified_call(bank, 6)
+    bank.book_slot(s, SISLI_FRI)
+    res = bank.cancel_for_call(s)
+    assert res["cancelled"] and res["released_slot_reassigned"] is False
+    assert {x["slot_id"]: x["booked"] for x in bank.board()["slots"]}[SISLI_FRI] == 0
+    assert bank.end_call(s)["outcome"] == "cancelled"
+
+
+def test_new_address_in_other_district_updates_registered_and_slots(bank):
+    b = verified_call(bank, 6, confirm=False)                 # Burak, kayıtlı adres Şişli
+    res = bank.set_delivery_address(b, "Atatürk Mahallesi, Ertuğrul Gazi Sokak No 7, Ataşehir",
+                                    "ATAŞEHİR", update_registered=True, address_type="home")
+    assert res["district"] == "Ataşehir" and res["registered_updated"] and res["served_this_week"]
+    assert [s["slot_id"] for s in bank.list_slots(b)["slots"]] == [ATASEHIR_THU]
+    booked = bank.book_slot(b, ATASEHIR_THU)
+    assert "Ertuğrul Gazi" in booked["address"]
+    burak = status_of(bank, "Burak Çelik")
+    assert burak["district"] == "Ataşehir" and "Ertuğrul Gazi" in burak["address"]
+    change = bank.board()["address_changes"][0]
+    assert change["scope"] == "registered" and change["old_district"] == "Şişli"
+    assert any("güncellendi" in s["body"] for s in bank.board()["sms"])   # güvenlik SMS'i
+
+
+def test_this_delivery_only_and_unserved_district(bank):
+    b = verified_call(bank, 6, confirm=False)
+    bank.set_delivery_address(b, "Acıbadem Mahallesi, Çeçen Sokak No 3, Üsküdar", "Üsküdar", False)
+    slots = bank.list_slots(b)
+    assert slots["slots"] == [] and slots["overflow"]["reason"] == "district_not_served"
+    assert status_of(bank, "Burak Çelik")["district"] == "Şişli"   # kayıtlı adres değişmedi
+    assert bank.join_waitlist(b, [])["next_week_priority"]
+
+
+def test_address_change_after_booking_in_other_district_requires_cancel(bank):
+    b = verified_call(bank, 6)
+    bank.book_slot(b, SISLI_FRI)
+    with pytest.raises(BankError) as e:
+        bank.set_delivery_address(b, "Atatürk Mahallesi, Ertuğrul Gazi Sokak No 7, Ataşehir", "Ataşehir", False)
+    assert e.value.code == "appointment_exists"
 
 
 def test_guards_wrong_district_double_booking_and_premature_waitlist(bank):
