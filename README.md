@@ -12,6 +12,8 @@ uv run uvicorn app.main:app --port 8000
 
 Ardından Chrome'da **http://localhost:8000** adresini aç, mikrofon iznini ver ve bir müşteride "Ara"ya bas.
 
+> **Safari'de açma.** Safari `webkitSpeechRecognition`'ı tanıyor ama konuşmayı Apple'ın dikte servisine gönderiyor. Sürekli dinleme ve mikrofon izinleri güvenilir değil: mikrofon kesiliyor, izin tekrar tekrar soruluyor. Sayfa Safari'de açılırsa arayüz bir uyarı gösteriyor.
+
 - **LLM:** Claude Agent SDK, `CLAUDE_CONFIG_DIR` ile seçilen Claude Code hesabının aboneliğini kullanıyor (varsayılan `~/.claude-2`). API anahtarı gerekmiyor.
 - **Ses modları:** "Ses" seçicisinde ElevenLabs, tarayıcı sesi ve kapalı (metin) var. Kredi harcamamak için çoğu testi "Kapalı" modda, yazarak yap.
 - **Söz kesme:** Asistan konuşurken araya girmeni sağlıyor. Yalnızca kulaklıkla aç. Hoparlörden çıkan ses STT'ye girer, bu yüzden varsayılan olarak asistan konuşurken mikrofon kapanıyor.

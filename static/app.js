@@ -458,6 +458,7 @@ function startCall(customerId) {
   call = { ws, customer, turn: 0, mode, ending: false, turnActive: false, lastEl: null, metrics: {} };
   audio.minTurn = 0;
   stt.fastFails = 0; stt.lastError = ""; stt.paused = false;
+  if (IS_SAFARI) sys(SAFARI_WARNING, true);
   audioWarned = false;
   loggedTurns.clear();
   $("#call-title").textContent = `${customer.full_name} aranıyor…`;
@@ -564,11 +565,17 @@ function toast(msg) {
   toast._t = setTimeout(() => (t.hidden = true), 5000);
 }
 
+// Safari webkitSpeechRecognition'ı tanır ama Apple dikte servisine gider; sürekli dinleme ve izinler güvenilmez.
+const SAFARI_WARNING = "Safari'de konuşma tanıma güvenilir değil (mikrofon kesilir, izin tekrar tekrar sorulur). Bu demoyu Chrome'da aç.";
+const IS_SAFARI = /^((?!chrome|chromium|crios|fxios|edg|opr|android).)*safari/i.test(navigator.userAgent);
+
 fetch("/api/config").then((r) => r.json()).then((c) => {
   audio.rate = c.sample_rate;
-  $("#meta").textContent = `LLM: ${c.model} (Agent SDK) · TTS: ${c.tts_available ? c.tts_model : "yok"} · STT: Chrome Web Speech`;
+  $("#meta").textContent = `LLM: ${c.model} (Agent SDK) · TTS: ${c.tts_available ? c.tts_model : "yok"} · STT: Chrome Web Speech`
+    + (IS_SAFARI ? " · ⚠ Safari algılandı: Chrome kullan" : "");
   if (!c.tts_available) $("#tts-mode").value = "browser";
 });
+if (IS_SAFARI) toast(SAFARI_WARNING);
 if ("speechSynthesis" in window) speechSynthesis.getVoices();
 refresh();
 setInterval(refresh, 3000);
