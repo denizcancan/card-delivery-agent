@@ -18,7 +18,8 @@ Ardından Chrome'da **http://localhost:8000** adresini aç, mikrofon iznini ver 
 - **Mikrofon:**
   - İzin isteminde kalıcı izin seçeneğini seç, "Bu sefer izin ver"i değil. Tek seferlik izin düşünce Chrome konuşma tanımayı sessizce kapatıyor.
   - Sayfayı hep aynı adresten aç (`localhost:8000`).
-  - Seviye çubuğu mikrofonun gerçekten ses alıp almadığını gösteriyor.
+  - Mikrofonu yalnızca Chrome'un konuşma tanıması açıyor. Yanındaki çubuk tanımanın olaylarını gösteriyor: kısa çubuk mikrofonun açık olduğunu, yarım çubuk ses algılandığını, dolu çubuk konuşma algılandığını belirtiyor. Ayrı bir `getUserMedia` akışı denendi ama macOS'ta hem sesi hem mikrofonu bozduğu için kaldırıldı.
+  - macOS'ta "audio-capture" hatası görürsen Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon altında Chrome'un açık olduğunu kontrol et.
   - Durum etiketi tıklanabilir; tıklayınca mikrofon yeniden deneniyor. Sekme arka plana geçince konuşma tanıma duruyor, geri dönünce kendiliğinden açılıyor.
   - Sorun olursa `localhost:8000/?debug` ile aç ve konsoldaki `[stt]` satırlarına bak.
 - **"Teslimatı iptal et" ve "Sıfırla" düğmeleri:** İptal, bekleme listesindeki müşterinin otomatik terfisini gösteriyor. Sıfırla, demo verisini başa alıyor.

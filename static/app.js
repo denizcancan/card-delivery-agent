@@ -101,10 +101,29 @@ function ensureAudio() {
   if (audio.ctx.state === "suspended") audio.ctx.resume();
 }
 
+// Ses çıkışı teşhisi: her turun ilk parçasında AudioContext durumunu günlüğe yaz; askıdaysa görünür uyarı ver.
+let audioWarned = false;
+const loggedTurns = new Set();
+function checkAudioOutput(turn) {
+  if (loggedTurns.has(turn)) return;
+  loggedTurns.add(turn);
+  log("audio chunk", `turn=${turn}`, `ctx=${audio.ctx.state}`, `rate=${audio.ctx.sampleRate}`);
+  if (audio.ctx.state !== "running") {
+    audio.ctx.resume().then(() => log("ctx resumed →", audio.ctx.state));
+    if (!audioWarned) {
+      audioWarned = true;
+      const el = addEl("sys err", "Tarayıcı sesi askıya aldı. Sesi açmak için buraya tıkla.");
+      el.style.cursor = "pointer";
+      el.onclick = () => audio.ctx.resume().then(() => { log("ctx resumed by click →", audio.ctx.state); el.remove(); });
+    }
+  }
+}
+
 function playPcm(buf) {
   if (!call || call.mode !== "eleven") return;
   const turn = new DataView(buf).getUint32(0, true);
   if (turn < audio.minTurn) return;                       // söz kesilmiş tur
+  checkAudioOutput(turn);
   const pcm = new Int16Array(buf, 4);
   const f32 = new Float32Array(pcm.length);
   for (let i = 0; i < pcm.length; i++) f32[i] = pcm[i] / 32768;
@@ -161,59 +180,20 @@ function onActivityChange() {
   }, IDLE_MS);
 }
 
-// ---------------- mikrofon izni + seviye göstergesi ----------------
-// Neden: Web Speech API kendi başına izin ister; "bu sefer izin ver" seçilirse izin arka planda düşebiliyor ve
-// tanıma sessizce 'not-allowed' ile kapanıyor. Arama boyunca açık tutulan getUserMedia akışı izni canlı tutar,
-// izin istemini kullanıcı tıklamasına bağlar ve seviye göstergesiyle mikrofonun gerçekten ses aldığını gösterir.
-const mic = { stream: null, raf: 0, permission: "unknown" };
+// ---------------- mikrofon izni + etkinlik göstergesi ----------------
+// Mikrofonu YALNIZCA Web Speech açar. (v6'da eklenen sürekli getUserMedia akışı kaldırıldı: macOS'ta yankı
+// engellemeli ikinci bir yakalama, ses çıkışını kısıp konuşma tanımanın mikrofonu açmasını engelleyebiliyor.)
+// Gösterge, tanımanın kendi olaylarından beslenir: açık → ses var → konuşma var.
+const mic = { permission: "unknown" };
 
 async function micPermissionState() {
   try { return (await navigator.permissions.query({ name: "microphone" })).state; } catch { return "unknown"; }
 }
 
-async function ensureMicStream() {
-  if (mic.stream && mic.stream.getAudioTracks().some((t) => t.readyState === "live")) return true;
-  try {
-    mic.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-    mic.permission = "granted";
-    log("getUserMedia ok");
-    const track = mic.stream.getAudioTracks()[0];
-    track.onended = () => { log("mic track ended"); mic.stream = null; updateMicState(); };
-    startLevelMeter();
-    return true;
-  } catch (e) {
-    mic.permission = e.name === "NotAllowedError" ? "denied" : "error";
-    stt.lastError = e.name;
-    log("getUserMedia failed", e.name);
-    updateMicState();
-    return false;
-  }
-}
-
-function startLevelMeter() {
-  ensureAudio();
-  const src = audio.ctx.createMediaStreamSource(mic.stream);
-  const analyser = audio.ctx.createAnalyser();
-  analyser.fftSize = 512;
-  src.connect(analyser);                                   // hoparlöre bağlanmaz (geri besleme yok)
-  const data = new Uint8Array(analyser.fftSize);
+function setMicActivity(level) {               // 0 kapalı · 20 mikrofon açık · 60 ses · 100 konuşma
   const bar = $("#mic-level > span");
-  cancelAnimationFrame(mic.raf);
-  const tick = () => {
-    analyser.getByteTimeDomainData(data);
-    let peak = 0;
-    for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
-    bar.style.width = `${Math.min(100, (peak / 128) * 180)}%`;
-    mic.raf = requestAnimationFrame(tick);
-  };
-  tick();
-}
-
-function releaseMic() {
-  cancelAnimationFrame(mic.raf);
-  if (mic.stream) mic.stream.getTracks().forEach((t) => t.stop());
-  mic.stream = null;
-  $("#mic-level > span").style.width = "0";
+  bar.style.width = `${level}%`;
+  bar.style.opacity = level ? "1" : "0";
 }
 
 // ---------------- konuşma tanıma (Chrome Web Speech, tr-TR) ----------------
@@ -235,12 +215,22 @@ function sttStart() {
   rec.interimResults = true;
   rec.onresult = onSpeech;
   rec.onstart = () => { stt.startedAt = performance.now(); log("rec start"); updateMicState(); };
+  rec.onaudiostart = () => { log("rec audiostart (mikrofon açıldı)"); mic.permission = "granted"; setMicActivity(20); };
+  rec.onsoundstart = () => setMicActivity(60);
+  rec.onspeechstart = () => setMicActivity(100);
+  rec.onsoundend = () => setMicActivity(20);
   rec.onerror = (e) => {
     stt.lastError = e.error;
     log("rec error", e.error, "hidden=" + document.hidden);
     if (e.error === "not-allowed" || e.error === "service-not-allowed") handleNotAllowed();
+    else if (e.error === "audio-capture" && stt.fastFails === 0) {
+      sys("Mikrofon açılamadı (audio-capture). Başka bir uygulama mikrofonu kullanıyor olabilir ya da sistem ayarlarında Chrome'un mikrofon izni kapalı olabilir.", true);
+    } else if (e.error === "network") {
+      sys("Konuşma tanıma servisine ulaşılamadı (network). İnternet bağlantısını kontrol et.", true);
+    }
   };
   rec.onend = () => {
+    setMicActivity(0);
     if (stt.rec === rec) stt.rec = null;
     const lived = performance.now() - stt.startedAt;
     stt.fastFails = lived < 1500 ? stt.fastFails + 1 : 0;
@@ -280,6 +270,7 @@ async function handleNotAllowed() {
 
 function sttStop() {
   clearTimeout(stt.restartTimer);
+  setMicActivity(0);
   const r = stt.rec;
   stt.rec = null;
   if (r) { r.onend = null; try { r.abort(); } catch { /* yok say */ } }
@@ -304,7 +295,8 @@ async function retryMic() {
   }
   mic.permission = "unknown";
   $("#mic-on").checked = true;
-  if (await ensureMicStream()) sttResumeIfIdle();
+  if (audio.ctx && audio.ctx.state !== "running") audio.ctx.resume();
+  sttResumeIfIdle();                                       // tıklama jesti içinde: izin istemi gerekirse açılır
   updateMicState();
 }
 
@@ -318,7 +310,6 @@ document.addEventListener("visibilitychange", () => {
   } else {
     if (audio.ctx && audio.ctx.state === "suspended") audio.ctx.resume();
     stt.fastFails = 0;
-    if (call && mic.stream === null && mic.permission === "granted") ensureMicStream();
     sttStart();
   }
   updateMicState();
@@ -467,7 +458,8 @@ function startCall(customerId) {
   call = { ws, customer, turn: 0, mode, ending: false, turnActive: false, lastEl: null, metrics: {} };
   audio.minTurn = 0;
   stt.fastFails = 0; stt.lastError = ""; stt.paused = false;
-  if ($("#mic-on").checked && SR) ensureMicStream();     // izin istemi tıklama jesti içinde açılır
+  audioWarned = false;
+  loggedTurns.clear();
   $("#call-title").textContent = `${customer.full_name} aranıyor…`;
   $("#call-sub").textContent = "Claude oturumu açılıyor";
   $("#hangup").disabled = false;
@@ -537,7 +529,6 @@ function cleanupCall() {
   if (!call) return;
   sttStop();
   stopAudio();
-  releaseMic();
   call = null;
   $("#hangup").disabled = true;
   $("#text-input").disabled = true; $("#send").disabled = true;

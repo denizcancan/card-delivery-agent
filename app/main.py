@@ -37,6 +37,15 @@ app = FastAPI(title="Freya Kart Teslim Asistanı", lifespan=lifespan)
 app.mount("/bank", create_bank_app(bank))
 
 
+@app.middleware("http")
+async def no_cache_ui(request, call_next):
+    """Arayüz dosyaları önbelleğe alınmasın: geliştirirken tarayıcı eski app.js'i çalıştırmasın."""
+    response = await call_next(request)
+    if not request.url.path.startswith(("/bank", "/api")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.get("/api/config")
 async def config():
     return {"model": settings.llm_model, "tts_available": app.state.tts.enabled,
