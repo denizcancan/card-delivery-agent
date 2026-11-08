@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+</head>
+<body>
+<title>Görüşme Düğümü</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: tek sütunlu ürün sayfası. Üstte akış şeridi, altında seçili düğümün paneli, sonra çalıştırma izi ve ürün notu. */
+:root {
+  --bg: #f2f4f6; --surface: #ffffff; --sunk: #e9edf1; --ink: #17202a; --muted: #56626e; --line: #d3d9df;
+  --ai: #0a6c75; --ai-soft: #dff0f1;
+  --dec: #2b50c0; --dec-soft: #e5eafa;
+  --svc: #56626e; --svc-soft: #eceff2;
+  --human: #94500a; --human-soft: #f6ebdd;
+  --ok: #2a7632; --ok-soft: #e2f0e3; --bad: #ad2a20; --bad-soft: #f8e2df;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141a; --surface: #161d25; --sunk: #1d2630; --ink: #e6ebf0; --muted: #97a3af; --line: #2b3642;
+    --ai: #4cc4cc; --ai-soft: #12343a; --dec: #8fa6ff; --dec-soft: #1c2547; --svc: #a3aeb9; --svc-soft: #222b35;
+    --human: #f0a650; --human-soft: #3a2a14; --ok: #74cf7b; --ok-soft: #163019; --bad: #ff8a80; --bad-soft: #3d1a18;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141a; --surface: #161d25; --sunk: #1d2630; --ink: #e6ebf0; --muted: #97a3af; --line: #2b3642;
+  --ai: #4cc4cc; --ai-soft: #12343a; --dec: #8fa6ff; --dec-soft: #1c2547; --svc: #a3aeb9; --svc-soft: #222b35;
+  --human: #f0a650; --human-soft: #3a2a14; --ok: #74cf7b; --ok-soft: #163019; --bad: #ff8a80; --bad-soft: #3d1a18;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); }
+.wrap {
+  max-width: 1080px; margin: 0 auto; display: grid; gap: 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 36px 64px;
+}
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 22px; font-weight: 600; }
+h3 { font-size: 15px; font-weight: 600; font-family: var(--f-body); }
+p { margin: 0; }
+code, pre, .mono { font-family: var(--f-mono); font-size: 13px; }
+.eyebrow { font: 500 12px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+section { display: grid; gap: 16px; min-width: 0; }
+.sec-head { display: grid; gap: 6px; max-width: 68ch; }
+
+/* Başlık */
+header { display: grid; gap: 14px; max-width: 760px; }
+.thesis { font-size: 18px; line-height: 1.5; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font: 500 12px/1 var(--f-mono); padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.pill.warn { border-color: var(--human); color: var(--human); background: var(--human-soft); }
+
+/* Akış şeridi */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.flow li { display: flex; align-items: center; gap: 10px; }
+.flow li:not(:last-child)::after { content: "→"; color: var(--muted); font-family: var(--f-mono); }
+.node {
+  --k: var(--svc); --ks: var(--svc-soft);
+  display: grid; gap: 6px; text-align: left; cursor: pointer; min-width: 132px; max-width: 190px;
+  padding: 10px 12px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink);
+  font: 500 14px/1.3 var(--f-body);
+}
+.node[data-kind="ai"] { --k: var(--ai); --ks: var(--ai-soft); }
+.node[data-kind="dec"] { --k: var(--dec); --ks: var(--dec-soft); }
+.node[data-kind="human"] { --k: var(--human); --ks: var(--human-soft); }
+.node .tag { font: 500 10.5px/1 var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--k); }
+.node:hover { border-color: var(--k); }
+.node[aria-pressed="true"] { border-color: var(--k); background: var(--ks); }
+.node:focus-visible, .tab:focus-visible { outline: 2px solid var(--k, var(--ai)); outline-offset: 2px; }
+.flow-note { font-size: 13.5px; color: var(--muted); max-width: 72ch; }
+
+/* Panel */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: grid; gap: 18px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px; }
+.kind-chip { font: 500 11px/1 var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; }
+.kind-chip.ai { color: var(--ai); background: var(--ai-soft); }
+.kind-chip.dec { color: var(--dec); background: var(--dec-soft); }
+.kind-chip.svc { color: var(--svc); background: var(--svc-soft); }
+.kind-chip.human { color: var(--human); background: var(--human-soft); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > .eyebrow { font-size: 11px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 13px/1 var(--f-mono); padding: 5px 8px; border-radius: 4px; background: var(--sunk); }
+.chip.no { text-decoration: line-through; color: var(--muted); }
+pre { margin: 0; padding: 14px; background: var(--sunk); border-radius: 8px; overflow-x: auto; line-height: 1.5; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 11px/1.2 var(--f-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+td.mono, th.mono { font-family: var(--f-mono); font-size: 13px; }
+.dmn th.split, .dmn td.split { border-left: 3px double var(--line); }
+.hit { font: 600 12px/1 var(--f-mono); color: var(--dec); border: 1px solid var(--dec); border-radius: 3px; padding: 2px 5px; }
+.callout { font-size: 14px; padding: 10px 12px; border-radius: 6px; background: var(--sunk); }
+
+/* Çalıştırma izi */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab { font: 500 14px/1 var(--f-body); padding: 9px 12px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.tab[aria-selected="true"] { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.trace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 780px) { .trace { grid-template-columns: minmax(0, 1fr); } }
+.transcript { display: grid; gap: 8px; align-content: start; }
+.msg { display: grid; gap: 2px; padding: 9px 12px; border-radius: 8px; max-width: 92%; }
+.msg .who { font: 500 11px/1 var(--f-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.msg.ai { background: var(--ai-soft); }
+.msg.cust { background: var(--sunk); justify-self: end; }
+.msg.tool { background: transparent; border: 1px dashed var(--line); font: 13px/1.3 var(--f-mono); color: var(--muted); padding: 6px 10px; }
+.steps { display: grid; gap: 14px; align-content: start; counter-reset: s; }
+.step { display: grid; gap: 8px; }
+.step > h3 { counter-increment: s; }
+.step > h3::before { content: counter(s) ". "; color: var(--muted); font-family: var(--f-mono); font-weight: 500; }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+.checks li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px; }
+.checks .ok::before { content: "✓"; color: var(--ok); font-weight: 600; }
+.checks .bad::before { content: "✗"; color: var(--bad); font-weight: 600; }
+.verdict { padding: 10px 12px; border-radius: 6px; font-size: 14px; }
+.verdict.ok { background: var(--ok-soft); }
+.verdict.bad { background: var(--bad-soft); }
+
+/* Ürün notu */
+.note-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.note { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.note ul, .note ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14.5px; }
+.note p { font-size: 14.5px; }
+.note.wide { grid-column: 1 / -1; }
+footer { font-size: 13px; color: var(--muted); max-width: 72ch; }
+@media (prefers-reduced-motion: no-preference) { .node, .tab { transition: background-color .15s, border-color .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Görev 2 · Ürün tasarımı (mock)</span>
+    <h1>Görüşme Düğümü</h1>
+    <p class="thesis">Bankanın zaten kullandığı akış ve karar motoruna eklenen bir AI adımı. Müşteriyle konuşur, sonucu şemaya uyan veri olarak akışa yazar. Kararı kurallar verir, istisnaları insan çözer.</p>
+    <div class="pills">
+      <span class="pill">Süreç: kredi kartı yaşam döngüsü</span>
+      <span class="pill">2 AI düğümü · 2 karar tablosu · 1 insan görevi</span>
+      <span class="pill warn">Veriler örnektir</span>
+    </div>
+  </header>
+
+  <section aria-labelledby="h-akis">
+    <div class="sec-head">
+      <h2 id="h-akis">Akış</h2>
+      <p class="muted">Bir düğüme tıkla, ayarlarını aşağıda gör.</p>
+    </div>
+    <ol class="flow" id="flow"></ol>
+    <p class="flow-note">Teslim araması yalnızca kurye kartı teslim edemezse çalışır. İstisna masası iki AI düğümünden de vaka alır. AI düğümleri dal seçmez; bir sonraki adıma her zaman karar tablosu karar verir.</p>
+    <div class="panel" id="panel" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="h-iz">
+    <div class="sec-head">
+      <h2 id="h-iz">Çalıştırma izi: Teklif araması</h2>
+      <p class="muted">Aynı düğüm, iki örnek görüşme. İkincisinde model teklifte olmayan bir şey söylüyor ve arama sonrası denetim bunu yakalıyor.</p>
+    </div>
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="panel" id="trace" role="tabpanel"></div>
+  </section>
+
+  <section aria-labelledby="h-not">
+    <div class="sec-head">
+      <h2 id="h-not">Ürün notu</h2>
+      <p class="muted">Kimin için, hangi işi görüyor, neyi bilerek dışarıda bıraktım ve neden.</p>
+    </div>
+    <div class="note-grid">
+      <div class="note wide">
+        <h3>Görüşüm</h3>
+        <p>AI bankacılığı yeni bir "banka işletim sistemi" kurarak değil, bankanın zaten güvendiği akış ve karar motorlarına sınırlı adımlar ekleyerek değiştirecek. Model algılar: konuşmayı ve belgeyi anlar. Kararı versiyonlu kurallar verir. Kuralın çözemediğini küçük bir insan ekibi çözer. Bilgi ve yetki modelde değil, bankanın zaten denetlediği sistemlerde kalır.</p>
+      </div>
+      <div class="note">
+        <h3>Fikre nasıl vardım</h3>
+        <ol>
+          <li>Bir satıcı blogunun (Backbase, 2026 trendleri) tezi: sorun model değil, mimari. Tezine katıldım, çözümüne katılmadım: her şeyi yeni bir platforma taşımak gerekmiyor.</li>
+          <li>Sesli bankacılığı düşündüm. Mevzuata bakınca şunu gördüm: ses bir arayüz, yetki kaynağı değil. Telefon bankacılığı iki bağımsız doğrulama bileşeni istiyor.</li>
+          <li>Birçok agent'lı bir bankada bilgi ve yetkinin nerede durması gerektiğini düşündüm. Cevap: agent'ın içinde değil; kayıt sistemlerinde, olay günlüğünde ve kural motorunda.</li>
+          <li>Bankalarda kullanılan akış ve karar motorlarının çoğunda müşteriyle konuşan bir adım yok. Büyük satıcılar genel bir "agent" adımı eklemeye başladı, ama müşteriyle görüşüp sonuç kodu döndüren bir adım hazır değil.</li>
+          <li>Bankaların teklif aramalarında hedefleme zaten otomatik, yalnızca arama insanla yapılıyor. Çağrı merkezi sonucu zaten sonuç kodu olarak dönüyor. Yani düğümün takılacağı yer hazır.</li>
+        </ol>
+      </div>
+      <div class="note">
+        <h3>Kimin için, hangi işi görüyor</h3>
+        <ul>
+          <li><b>Süreç sahibi:</b> Akışı tasarlayan iş analisti, görüşme adımını diğer adımlar gibi akışa ekler ve ayarlar.</li>
+          <li><b>Operasyon ekibi:</b> Sadece kuralın çözemediği vakaları, bağlamıyla birlikte görür.</li>
+          <li><b>Müşteri:</b> Daha az ama daha net arama alır. Rakamlar doğru, "hayır" kalıcı.</li>
+          <li><b>İş:</b> Periyodik ya da bir olayla tetiklenen görüşmeler: teklif, teslim edilemeyen kart, KYC güncellemesi, erken tahsilat, şüpheli işlem teyidi.</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>Bilerek dışarıda bıraktıklarım</h3>
+        <ul>
+          <li>Kendi akış motorum: düğüm mevcut motorlara eklenir.</li>
+          <li>Kredi kararı: karar tablosunda kalır, model karar vermez.</li>
+          <li>Hesap açılışı: mevzuat görüntülü görüşme ve kimlik çipinin okunmasını istiyor, sesle yapılamaz.</li>
+          <li>Düğümün dal seçmesi ve serbest metin çıktı.</li>
+          <li>Gerçek telefon hattı, İYS ve kart sistemi entegrasyonu.</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>Neden böyle</h3>
+        <ul>
+          <li><b>Şema zorunlu:</b> Şemaya uymayan çıktı akışa girmez. "BELİRSİZ" geçerli bir sonuç, model emin olmadığı şeyi kesinmiş gibi yazmaz.</li>
+          <li><b>Rakamlar akıştan gelir:</b> Model limit ya da aidat uydurmaz. Söylediği her rakam arama sonrası teklifle karşılaştırılır.</li>
+          <li><b>Her arama denetlenir:</b> Çağrı merkezlerinde aramaların küçük bir kısmı dinlenebiliyor, bu denetim her aramada çalışır.</li>
+          <li><b>Gizli bilgi istenmez:</b> Bankadan gelen bir aramada şifre ya da kod istemek dolandırıcı aramalarına benzer. Onay uygulamada alınır.</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>Gerçek bankada açmadan önce</h3>
+        <ul>
+          <li>Verinin nerede işlendiği: KVKK ve bankacılık mevzuatı açısından model ve ses servislerinin yurt içinde ya da sözleşmeli olması.</li>
+          <li>Pazarlama aramaları için İYS arama izni; görüşme başında kayıt ve yapay zekâ bildirimi.</li>
+          <li>Prompt ve model değişiklikleri için onay süreci; her değişiklikte senaryo seti.</li>
+          <li>Ses tanıma hatasını ayrıca ölçmek.</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>Nasıl ölçerdim</h3>
+        <ul>
+          <li>Düğüm başına: tamamlanma, BELİRSİZ, şema hatası, rakam uyuşmazlığı ve insana devir oranları.</li>
+          <li>Teklif için dönüşüm ile "bir daha arama" oranını birlikte: biri artarken diğeri de artıyorsa düğüm spam üretiyordur.</li>
+          <li>Teslim için: ikinci teslim denemesinin başarı oranı.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>Bu tasarım, 2 saatlik geliştirme süresi dolduktan sonra hazırlandı; 2 saatin tamamı Görev 1'e gitti. Teslim araması düğümü Görev 1'deki çalışan prototip. Diğer düğümler, tablolar ve görüşmeler örnektir.</footer>
+</div>
+
+<script>
+const NODES = [
+  { id: "hedef", kind: "dec", tag: "Karar tablosu", label: "Hedefleme ve ön onaylı limit" },
+  { id: "teklif", kind: "ai", tag: "AI görüşme", label: "Teklif araması" },
+  { id: "yonlendir", kind: "dec", tag: "Karar tablosu", label: "Sonuç koduna göre yönlendir" },
+  { id: "onay", kind: "svc", tag: "Servis", label: "Uygulamada onay" },
+  { id: "kurye", kind: "svc", tag: "Servis", label: "Kart basımı ve kurye" },
+  { id: "teslim", kind: "ai", tag: "AI görüşme · Görev 1", label: "Teslim araması" },
+  { id: "masa", kind: "human", tag: "İnsan görevi", label: "İstisna masası" },
+];
+const KIND = { ai: "AI görüşme düğümü", dec: "Karar tablosu", svc: "Servis adımı", human: "İnsan görevi" };
+
+const chips = (list, cls = "") => `<div class="chips">${list.map((x) => `<span class="chip ${cls}">${x}</span>`).join("")}</div>`;
+const field = (label, body) => `<div class="field"><span class="eyebrow">${label}</span>${body}</div>`;
+
+const DETAIL = {
+  hedef: () => `
+    <p>Kimin aranacağına, hangi limitle ve hangi kanaldan teklif yapılacağına kural motoru karar verir. Model bu adımda yok.</p>
+    <div class="tbl-wrap"><table class="dmn">
+      <thead><tr><th><span class="hit" title="İlk eşleşen satır uygulanır">F</span></th><th>İYS arama izni</th><th>Eğilim skoru</th><th>KKB skoru</th><th class="split">Kanal</th><th>Limit üst sınırı</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">1</td><td>var</td><td class="mono">≥ 0,60</td><td class="mono">≥ 1500</td><td class="split">AI arama</td><td class="mono">60.000 TL</td></tr>
+        <tr><td class="mono">2</td><td>var</td><td class="mono">≥ 0,60</td><td class="mono">1100–1499</td><td class="split">AI arama</td><td class="mono">20.000 TL</td></tr>
+        <tr><td class="mono">3</td><td>yok</td><td class="mono">≥ 0,60</td><td class="mono">≥ 1100</td><td class="split">Uygulama içi teklif</td><td class="mono">20.000 TL</td></tr>
+        <tr><td class="mono">4</td><td>–</td><td class="mono">&lt; 0,60</td><td>–</td><td class="split">Teklif yok</td><td>–</td></tr>
+      </tbody></table></div>
+    <p class="callout">Eşikler örnektir. Tablo versiyonlu tutulur; denetçi okuyabilir, değişiklikleri test edilir.</p>`,
+
+  teklif: () => `
+    <div class="grid2">
+      ${field("Amaç", "<p>Ön onaylı kredi kartı teklifini anlatmak, soruları yanıtlamak ve sonucu kodlamak.</p>")}
+      ${field("Tetikleme ve deneme", "<p>Hedefleme tablosu kanal olarak \"AI arama\" seçince başlar. En fazla 3 deneme, 2 gün arayla.</p>")}
+      ${field("Modele giden bağlam", chips(["ad", "teklif_id"]))}
+      ${field("Modele hiç gitmeyen", chips(["TCKN", "doğum tarihi", "gelir", "KKB skoru"], "no"))}
+    </div>
+    ${field("Araçlar", chips(["teklif_detayi_getir", "uygulamaya_onay_gonder", "iletisim_tercihi_guncelle", "insana_devret"]))}
+    ${field("Çıktı şeması", `<pre>sonuc: KABUL | DUSUNECEK | RED | TEKRAR_ARA | ULASILAMADI
+       | BIR_DAHA_ARAMA | INSANA_DEVRET | BELIRSIZ
+tekrar_ara_zamani?: tarih            # yalnızca TEKRAR_ARA ise
+musteriye_soylenen_rakamlar: [{alan, deger}]
+kirilganlik_isareti: bool
+kayit: {transcript_id, model, prompt}</pre>`)}
+    ${field("Kurallar ve nerede uygulandıkları", `<div class="tbl-wrap"><table>
+      <thead><tr><th>Kural</th><th>Nerede uygulanır</th></tr></thead><tbody>
+      <tr><td>Rakamları model üretmez, yalnızca teklif_detayi_getir sonucunu söyler.</td><td>Arama sonrası rakam denetimi</td></tr>
+      <tr><td>Limit için pazarlık yok.</td><td>Araçlarda limit parametresi yok</td></tr>
+      <tr><td>Açılışta yapay zekâ asistanı olduğunu söyler.</td><td>Prompt ve döküm denetimi</td></tr>
+      <tr><td>Şifre, kod ya da doğum tarihi istemez. Başvuru uygulamada onaylanır.</td><td>Bu bilgileri alan bir araç yok</td></tr>
+      <tr><td>Teklifi anlamayan müşteriye satış yapmaz, insana devreder.</td><td>Çıktıda kirilganlik_isareti</td></tr>
+      <tr><td>Müşteri "beni aramayın" derse kanal kapanır.</td><td>iletisim_tercihi_guncelle</td></tr>
+      </tbody></table></div>`)}
+    <p class="muted mono">model claude-haiku-5-5 · prompt teklif-v1 · şema v1</p>`,
+
+  yonlendir: () => `
+    <p>AI düğümünün sonuç kodu bir sonraki adımı belirler. Yönlendirme her zaman bu tabloda; model dal seçmez.</p>
+    <div class="tbl-wrap"><table class="dmn">
+      <thead><tr><th><span class="hit" title="İlk eşleşen satır uygulanır">F</span></th><th>Sonuç kodu ve denetim</th><th class="split">Sonraki adım</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">1</td><td class="mono">KABUL · denetim temiz</td><td class="split">Uygulamada onay</td></tr>
+        <tr><td class="mono">2</td><td class="mono">DUSUNECEK</td><td class="split">3 gün sonra uygulama hatırlatması</td></tr>
+        <tr><td class="mono">3</td><td class="mono">TEKRAR_ARA, ULASILAMADI</td><td class="split">Zamanlayıcı, sonra Teklif araması (en fazla 3)</td></tr>
+        <tr><td class="mono">4</td><td class="mono">RED</td><td class="split">Bu ürün 6 ay teklif edilmez</td></tr>
+        <tr><td class="mono">5</td><td class="mono">BIR_DAHA_ARAMA</td><td class="split">Arama izni kapanır</td></tr>
+        <tr><td class="mono">6</td><td class="mono">BELIRSIZ, INSANA_DEVRET, şema ya da rakam hatası</td><td class="split">İstisna masası</td></tr>
+      </tbody></table></div>`,
+
+  onay: () => `
+    <p>Kayıtlı cihaza bir onay bildirimi gider. Sözleşme ve onay burada, iki bağımsız bileşenle (cihaz ve PIN ya da biyometri) alınır.</p>
+    <p class="callout">Telefonda onay alınmaz: bankadan gelen bir aramada gizli bilgi istemek dolandırıcı aramalarına benzer. 3 gün içinde onay gelmezse bir hatırlatma gider, sonra teklif kapanır.</p>`,
+
+  kurye: () => `
+    <p>Kart sistemi ve kurye entegrasyonu bu tasarımın kapsamı dışında. Kart yalnızca sahibine, kimliği görülerek teslim edilir.</p>
+    <p class="callout">Kurye kartı teslim edemezse akış Teslim araması düğümüne geçer.</p>`,
+
+  teslim: () => `
+    <p class="callout">Bu düğüm Görev 1'de çalışan prototip: tarayıcıda sesli görüşme, Claude Agent SDK ve ayrı bir banka servisi.</p>
+    <div class="grid2">
+      ${field("Amaç", "<p>Teslim edilemeyen kart için bu hafta yeni bir teslim zamanı ayarlamak.</p>")}
+      ${field("Modele hiç gitmeyen", chips(["doğum tarihi", "customer_id"], "no") + "<p class=\"muted\">Doğum tarihini servis karşılaştırır. Müşteri sunucuda oturuma bağlı.</p>")}
+    </div>
+    ${field("Araçlar (10)", chips(["verify_identity", "confirm_address", "set_delivery_address", "list_available_slots", "book_slot", "reschedule_appointment", "cancel_appointment", "join_waitlist", "escalate", "end_call"]))}
+    ${field("Çıktı", "<pre>sonuc: scheduled | waitlisted | cancelled\n     | verification_failed | not_reached | escalated\n# modelin beyanından değil, veritabanından hesaplanır</pre>")}
+    ${field("Yönlendirme", `<div class="tbl-wrap"><table><tbody>
+      <tr><td class="mono">scheduled</td><td>Kurye</td></tr>
+      <tr><td class="mono">waitlisted</td><td>Bekleme listesi; yer açılırsa otomatik atama ve SMS, açılmazsa gelecek hafta önceliği</td></tr>
+      <tr><td class="mono">verification_failed, not_reached, escalated</td><td>İstisna masası</td></tr>
+      </tbody></table></div>`)}
+    ${field("Sunucudaki güvenceler", "<p>Kapasite veritabanı kısıtlarıyla korunuyor. 2 hatalı doğum tarihinde kilit. Telefonu başkası açarsa aramanın konusu söylenmiyor. Kart üçüncü kişiye verilmiyor.</p>")}`,
+
+  masa: () => `
+    <p>İki AI düğümünden gelen vakalar burada toplanır. Her vaka konuşma özeti, yapılandırılmış çıktı ve önerilen aksiyonla gelir. İnsan onaylar, düzeltir ya da reddeder; her karar kim, hangi kural, hangi bağlam olarak kaydedilir.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Vaka</th><th>Kaynak</th><th>Müşteri</th><th>Önerilen aksiyon</th></tr></thead><tbody>
+      <tr><td>Rakam uyuşmazlığı</td><td>Teklif araması</td><td>Selin Aydın</td><td>Onay bildirimini geri çek, düzeltme SMS'i gönder</td></tr>
+      <tr><td>Kimlik doğrulanamadı</td><td>Teslim araması</td><td>Can Yıldız</td><td>Uygulamadan doğrulama iste, sonra yeniden ara</td></tr>
+      <tr><td>Ulaşılamadı</td><td>Teslim araması</td><td>Elif Şahin</td><td>SMS ile randevu bağlantısı gönder</td></tr>
+      </tbody></table></div>
+    <p class="muted">Örnek vakalar. İkisi Görev 1'in senaryo testindeki görüşmelerden.</p>`,
+};
+
+const TRACES = [
+  {
+    id: "kabul", tab: "Kabul", customer: "Ayşe Kaya", offer: "T-1108-0042 · limit 45.000 TL · ilk yıl aidatsız, sonra yıllık 1.200 TL",
+    msgs: [
+      ["ai", "Merhaba, ben bankanızın yapay zekâ asistanıyım. Ayşe Kaya ile mi görüşüyorum?"],
+      ["cust", "Evet, benim."],
+      ["ai", "Size ön onaylı bir kredi kartı teklifimiz var. Kısaca anlatmamı ister misiniz?"],
+      ["cust", "Olur. Aidatı var mı?"],
+      ["tool", "teklif_detayi_getir → limit 45000, aidat_ilk_yil 0, aidat_yillik 1200"],
+      ["ai", "İlk yıl aidat yok, sonraki yıllarda yıllık bin iki yüz lira. Limitiniz kırk beş bin lira."],
+      ["cust", "Tamam, alayım."],
+      ["tool", "uygulamaya_onay_gonder → gönderildi"],
+      ["ai", "Uygulamanıza bir onay bildirimi gönderdim, başvuruyu oradan tamamlayabilirsiniz. Telefonda sizden şifre ya da kod istemeyeceğim."],
+    ],
+    output: `{
+  "sonuc": "KABUL",
+  "musteriye_soylenen_rakamlar": [
+    {"alan": "aidat_ilk_yil", "deger": 0},
+    {"alan": "aidat_yillik", "deger": 1200},
+    {"alan": "limit", "deger": 45000}
+  ],
+  "kirilganlik_isareti": false,
+  "kayit": {"transcript_id": "tr-88412", "model": "claude-haiku-5-5", "prompt": "teklif-v1"}
+}`,
+    checks: [
+      ["ok", "Çıktı şemaya uyuyor."],
+      ["ok", "Söylenen 3 rakam teklif T-1108-0042 ile eşleşiyor."],
+      ["ok", "Açılışta yapay zekâ bildirimi yapıldı."],
+      ["ok", "Gizli bilgi istenmedi."],
+    ],
+    verdict: ["ok", "Yönlendirme tablosu, satır 1: KABUL ve denetim temiz → Uygulamada onay."],
+  },
+  {
+    id: "uyusmazlik", tab: "Rakam uyuşmazlığı", customer: "Selin Aydın", offer: "T-1108-0057 · limit 20.000 TL · ilk yıl aidatsız, sonra yıllık 1.200 TL",
+    msgs: [
+      ["ai", "Merhaba, ben bankanızın yapay zekâ asistanıyım. Selin Aydın ile mi görüşüyorum?"],
+      ["cust", "Evet."],
+      ["ai", "Size ön onaylı bir kredi kartı teklifimiz var. Kısaca anlatmamı ister misiniz?"],
+      ["cust", "Aidat alıyor musunuz? Almıyorsanız düşünürüm."],
+      ["tool", "teklif_detayi_getir → limit 20000, aidat_ilk_yil 0, aidat_yillik 1200"],
+      ["ai", "Bu kartta aidat yok, limitiniz yirmi bin lira."],
+      ["cust", "Güzel, o zaman olur."],
+      ["tool", "uygulamaya_onay_gonder → gönderildi"],
+      ["ai", "Uygulamanıza bir onay bildirimi gönderdim, başvuruyu oradan tamamlayabilirsiniz."],
+    ],
+    output: `{
+  "sonuc": "KABUL",
+  "musteriye_soylenen_rakamlar": [
+    {"alan": "aidat_yillik", "deger": 0},
+    {"alan": "limit", "deger": 20000}
+  ],
+  "kirilganlik_isareti": false,
+  "kayit": {"transcript_id": "tr-88431", "model": "claude-haiku-5-5", "prompt": "teklif-v1"}
+}`,
+    checks: [
+      ["ok", "Çıktı şemaya uyuyor."],
+      ["bad", "Rakam denetimi: müşteriye \"aidat yok\" dendi. Teklifte ilk yıldan sonra yıllık 1.200 TL aidat var."],
+      ["ok", "Açılışta yapay zekâ bildirimi yapıldı."],
+      ["ok", "Gizli bilgi istenmedi."],
+    ],
+    verdict: ["bad", "Yönlendirme tablosu, satır 6: rakam hatası → İstisna masası. Onay bildirimi geri çekilir; müşteri doğru bilgiyle yeniden onaylarsa akış devam eder."],
+  },
+];
+
+function renderFlow(selected) {
+  document.getElementById("flow").innerHTML = NODES.map((n) => `
+    <li><button class="node" type="button" id="node-${n.id}" data-id="${n.id}" data-kind="${n.kind}" aria-pressed="${n.id === selected}">
+      <span class="tag">${n.tag}</span><span>${n.label}</span></button></li>`).join("");
+  const n = NODES.find((x) => x.id === selected);
+  document.getElementById("panel").innerHTML = `
+    <div class="panel-head"><h2>${n.label}</h2><span class="kind-chip ${n.kind}">${KIND[n.kind]}</span></div>
+    ${DETAIL[n.id]()}`;
+}
+
+function renderTrace(id) {
+  document.getElementById("tabs").innerHTML = TRACES.map((t) => `
+    <button class="tab" type="button" role="tab" id="tab-${t.id}" data-id="${t.id}" aria-selected="${t.id === id}">${t.tab}</button>`).join("");
+  const t = TRACES.find((x) => x.id === id);
+  const who = { ai: "Asistan", cust: "Müşteri", tool: "" };
+  document.getElementById("trace").innerHTML = `
+    <div class="panel-head"><h3>${t.customer}</h3><span class="muted mono">${t.offer}</span></div>
+    <div class="trace">
+      <div class="transcript">
+        ${t.msgs.map(([k, text]) => k === "tool"
+          ? `<div class="msg tool">araç: ${text}</div>`
+          : `<div class="msg ${k}"><span class="who">${who[k]}</span><span>${text}</span></div>`).join("")}
+      </div>
+      <div class="steps">
+        <div class="step"><h3>Yapılandırılmış çıktı</h3><pre>${t.output}</pre></div>
+        <div class="step"><h3>Arama sonrası denetim</h3><ul class="checks">${t.checks.map(([k, s]) => `<li class="${k}"><span>${s}</span></li>`).join("")}</ul></div>
+        <div class="step"><h3>Karar</h3><p class="verdict ${t.verdict[0]}">${t.verdict[1]}</p></div>
+      </div>
+    </div>`;
+}
+
+let currentNode = "teklif";
+let currentTrace = "kabul";
+document.getElementById("flow").addEventListener("click", (e) => {
+  const b = e.target.closest(".node");
+  if (!b) return;
+  currentNode = b.dataset.id;
+  renderFlow(currentNode);
+  document.getElementById("node-" + currentNode).focus();
+});
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const b = e.target.closest(".tab");
+  if (!b) return;
+  currentTrace = b.dataset.id;
+  renderTrace(currentTrace);
+  document.getElementById("tab-" + currentTrace).focus();
+});
+renderFlow(currentNode);
+renderTrace(currentTrace);
+</script>
+
+</body>
+</html>
